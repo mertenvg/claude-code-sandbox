@@ -2,9 +2,12 @@ package main
 
 import (
 	_ "embed"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 )
 
 //go:embed Dockerfile
@@ -12,7 +15,26 @@ var dockerfile []byte
 
 const imageName = "claude-code-sandbox"
 
+var nonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+
+var nameFlag = flag.String("name", "", "override the container name")
+
+func containerName() string {
+	if *nameFlag != "" {
+		return *nameFlag
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "default"
+	}
+	slug := strings.ToLower(nonAlphanumeric.ReplaceAllString(cwd, "-"))
+	slug = strings.Trim(slug, "-")
+	return "claude-sandbox-" + slug
+}
+
 func main() {
+	flag.Parse()
+
 	if err := ensureImage(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -56,13 +78,39 @@ func ensureImage() error {
 	return nil
 }
 
+func containerExists(name string) bool {
+	check := exec.Command("docker", "container", "inspect", name)
+	check.Stdout = nil
+	check.Stderr = nil
+	return check.Run() == nil
+}
+
 func run() error {
+	name := containerName()
+	if containerExists(name) {
+		fmt.Fprintln(os.Stderr, "Restarting existing sandbox container...")
+		return startContainer(name)
+	}
+
+	fmt.Fprintln(os.Stderr, "Creating new sandbox container...")
+	return createContainer(name)
+}
+
+func startContainer(name string) error {
+	cmd := exec.Command("docker", "start", "-a", "-i", name)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func createContainer(name string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	args := []string{"run", "--rm", "-i"}
+	args := []string{"run", "-i", "--name", name}
 
 	// Allocate a TTY only when stdin is a terminal
 	if isTerminal(os.Stdin) {
@@ -75,8 +123,8 @@ func run() error {
 		args = append(args, "-e", "ANTHROPIC_API_KEY="+key)
 	}
 
-	args = append(args, imageName, "claude", "--dangerously-skip-permissions", "--api-key", os.Getenv("ANTHROPIC_API_KEY"))
-	args = append(args, os.Args[1:]...)
+	args = append(args, imageName, "claude", "--dangerously-skip-permissions")
+	args = append(args, flag.Args()...)
 
 	cmd := exec.Command("docker", args...)
 	cmd.Stdin = os.Stdin
