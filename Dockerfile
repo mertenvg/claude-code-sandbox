@@ -16,6 +16,9 @@ RUN npm install -g @anthropic-ai/claude-code
 RUN go install golang.org/x/tools/gopls@latest && \
     go install github.com/go-delve/delve/cmd/dlv@latest
 
+RUN useradd -m sandbox
+USER sandbox
+
 WORKDIR /workspace
 
 CMD ["bash"]
