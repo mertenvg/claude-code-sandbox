@@ -17,24 +17,39 @@ The container includes:
 
 ## Usage
 
-From your project root, run:
+### Install the binary (recommended)
 
 ```bash
-/path/to/claude-sandbox.sh
+go install github.com/mertenvg/claude-code-sandbox@latest
 ```
 
-Or copy `claude-sandbox.sh` into your project and run it from there:
+Then from any project directory:
+
+```bash
+claude-code-sandbox
+```
+
+### Shell script (alternative)
+
+Copy `claude-sandbox.sh` into your project and run it from your project root:
 
 ```bash
 ./claude-sandbox.sh
 ```
 
-The script will:
-1. Build the Docker image on first run (one-time setup, takes a few minutes)
-2. Mount your current directory into the container as `/workspace`
-3. Launch Claude Code with `--dangerously-skip-permissions`
+### What happens on first run
+
+1. The Docker image is built automatically (one-time setup, takes a few minutes)
+2. Your current directory is mounted into the container as `/workspace`
+3. Claude Code launches with `--dangerously-skip-permissions`
 
 Your `ANTHROPIC_API_KEY` is passed through automatically from your shell environment.
+
+Any extra arguments are forwarded to `claude`, e.g.:
+
+```bash
+claude-code-sandbox --model claude-opus-4-6
+```
 
 ## Notes
 
