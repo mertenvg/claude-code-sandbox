@@ -13,7 +13,8 @@ The container includes:
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/)
-- An `ANTHROPIC_API_KEY` environment variable set in your shell
+
+> **Note:** `ANTHROPIC_API_KEY` is not currently supported. Claude recommends against using API keys when starting the app. Instead, the app will automatically prompt for OAuth authentication on startup.
 
 ## Usage
 
@@ -42,8 +43,6 @@ Copy `claude-sandbox.sh` into your project and run it from your project root:
 1. The Docker image is built automatically (one-time setup, takes a few minutes)
 2. Your current directory is mounted into the container as `/workspace`
 3. Claude Code launches with `--dangerously-skip-permissions`
-
-Your `ANTHROPIC_API_KEY` is passed through automatically from your shell environment.
 
 Any extra arguments are forwarded to `claude`, e.g.:
 
