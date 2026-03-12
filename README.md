@@ -1,4 +1,4 @@
-# claude-code-sandbox
+# claude-code-sandbox ![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/mertenvg/claude-code-sandbox)
 
 A Docker-based sandbox for running Claude Code with `--dangerously-skip-permissions` safely. The container provides filesystem and process isolation so Claude can operate autonomously on your project without risking your host system.
 
