@@ -7,8 +7,8 @@ A Docker-based sandbox for running Claude Code with `--dangerously-skip-permissi
 Claude Code's `--dangerously-skip-permissions` flag lets it run commands and edit files without asking for approval at every step — useful for long autonomous tasks. The risk is that it can also run arbitrary shell commands on your machine. This sandbox runs Claude inside a Docker container with only your project directory mounted, so any risky operations are contained.
 
 The container includes:
-- Go 1.23 + gopls + Delve (for Go development)
-- Node.js 20 + Claude Code
+- Go 1.26 + gopls + Delve (for Go development)
+- Node.js 24 + Claude Code
 
 ## Prerequisites
 

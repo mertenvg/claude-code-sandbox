@@ -1,11 +1,11 @@
 # Claude Code Sandbox
-# Includes: Go 1.23, Node 20 (for Claude Code), common dev tools
+# Includes: Go 1.26, Node 24 (for Claude Code), common dev tools
 
-FROM golang:1.23-bookworm
+FROM golang:1.26-bookworm
 
-# Install Node.js 20
+# Install Node.js 24
 RUN apt-get update && apt-get install -y curl && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
