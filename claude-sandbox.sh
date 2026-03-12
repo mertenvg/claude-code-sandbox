@@ -11,11 +11,19 @@ if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
   docker build -t "$IMAGE_NAME" "$SCRIPT_DIR"
 fi
 
-# Launch the sandbox
-docker run -it --rm \
-  -v "$(pwd):/workspace" \
-  -w /workspace \
-  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-  "$IMAGE_NAME"
-#  \
-#  claude --dangerously-skip-permissions
+CONTAINER_NAME="claude-sandbox"
+
+# Reuse existing container if it exists, otherwise create a new one
+if docker container inspect "$CONTAINER_NAME" &>/dev/null; then
+  echo "Restarting existing sandbox container..."
+  docker start -ai "$CONTAINER_NAME"
+else
+  echo "Creating new sandbox container..."
+  docker run -it \
+    --name "$CONTAINER_NAME" \
+    -v "$(pwd):/workspace" \
+    -w /workspace \
+    -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+    "$IMAGE_NAME" \
+    claude --dangerously-skip-permissions
+fi

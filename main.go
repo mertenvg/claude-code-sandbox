@@ -11,6 +11,7 @@ import (
 var dockerfile []byte
 
 const imageName = "claude-code-sandbox"
+const containerName = "claude-sandbox"
 
 func main() {
 	if err := ensureImage(); err != nil {
@@ -56,13 +57,41 @@ func ensureImage() error {
 	return nil
 }
 
+func containerExists() bool {
+	check := exec.Command("docker", "container", "inspect", containerName)
+	check.Stdout = nil
+	check.Stderr = nil
+	return check.Run() == nil
+}
+
 func run() error {
+	if containerExists() {
+		fmt.Fprintln(os.Stderr, "Restarting existing sandbox container...")
+		return startContainer()
+	}
+
+	fmt.Fprintln(os.Stderr, "Creating new sandbox container...")
+	return createContainer()
+}
+
+func startContainer() error {
+	args := []string{"start", "-a", "-i"}
+
+	cmd := exec.Command("docker", args...)
+	cmd.Args = append(cmd.Args, containerName)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func createContainer() error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	args := []string{"run", "--rm", "-i"}
+	args := []string{"run", "-i", "--name", containerName}
 
 	// Allocate a TTY only when stdin is a terminal
 	if isTerminal(os.Stdin) {
@@ -75,7 +104,7 @@ func run() error {
 		args = append(args, "-e", "ANTHROPIC_API_KEY="+key)
 	}
 
-	args = append(args, imageName, "claude", "--dangerously-skip-permissions", "--api-key", os.Getenv("ANTHROPIC_API_KEY"))
+	args = append(args, imageName, "claude", "--dangerously-skip-permissions")
 	args = append(args, os.Args[1:]...)
 
 	cmd := exec.Command("docker", args...)
