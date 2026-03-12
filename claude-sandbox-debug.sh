@@ -1,6 +1,4 @@
 #!/bin/bash
-# Claude Code Sandbox launcher
-# Run this from your project root
 
 IMAGE_NAME="claude-code-sandbox"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,20 +18,15 @@ fi
 
 # Derive container name from current working directory if not provided
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="claude-sandbox-$(pwd | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/^-//;s/-$//' | tr '[:upper:]' '[:lower:]')"
+  CONTAINER_NAME="claude-sandbox-$(pwd | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/^-//;s/-$//' | tr '[:upper:]' '[:lower:]')-debug"
 fi
 
 # Reuse existing container if it exists, otherwise create a new one
-if docker container inspect "$CONTAINER_NAME" &>/dev/null; then
-  echo "Restarting existing sandbox container..."
-  docker start -ai "$CONTAINER_NAME"
-else
-  echo "Creating new sandbox container..."
-  docker run -it \
-    --name "$CONTAINER_NAME" \
-    -v "$(pwd):/workspace" \
-    -w /workspace \
-    -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-    "$IMAGE_NAME" \
-    claude --dangerously-skip-permissions
-fi
+echo "Creating new sandbox container..."
+docker run -it \
+  --name "$CONTAINER_NAME" \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  "$IMAGE_NAME" \
+  bash
