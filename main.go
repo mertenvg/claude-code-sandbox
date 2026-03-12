@@ -75,7 +75,11 @@ func run() error {
 		args = append(args, "-e", "ANTHROPIC_API_KEY="+key)
 	}
 
+<<<<<<< Updated upstream
 	args = append(args, imageName, "claude", "--dangerously-skip-permissions")
+=======
+	args = append(args, imageName, "claude", "--dangerously-skip-permissions", "--api-key", os.Getenv("ANTHROPIC_API_KEY"))
+>>>>>>> Stashed changes
 	args = append(args, os.Args[1:]...)
 
 	cmd := exec.Command("docker", args...)
