@@ -50,8 +50,26 @@ Any extra arguments are forwarded to `claude`, e.g.:
 claude-code-sandbox --model claude-opus-4-6
 ```
 
+### Custom container name
+
+By default, the container name is derived from the current working directory. You can override it with the `--name` flag:
+
+```bash
+# Binary
+claude-code-sandbox -name my-container
+
+# Shell script
+./claude-sandbox.sh --name my-container
+
+# Debug script
+./debug.sh --name my-debug-container
+```
+
+This is useful when you want a stable, memorable container name or need to run multiple sandboxes for the same project.
+
 ## Notes
 
 - Changes Claude makes inside the container are written directly to your mounted project directory — they persist on your host.
-- The container is ephemeral (`--rm`): anything outside `/workspace` is discarded when Claude exits.
+- The container is reused across runs. If a container with the same name already exists, it is restarted rather than recreated. Anything outside `/workspace` (e.g. installed packages, auth state) is preserved between sessions.
+- To start fresh, remove the container manually with `docker rm <container-name>`.
 - Network access is not restricted by default. If you want to limit outbound connections, add Docker network flags to the `docker run` command in `claude-sandbox.sh`.
