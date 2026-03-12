@@ -1,5 +1,4 @@
 # claude-code-sandbox
-<<<<<<< Updated upstream
 
 A Docker-based sandbox for running Claude Code with `--dangerously-skip-permissions` safely. The container provides filesystem and process isolation so Claude can operate autonomously on your project without risking your host system.
 
@@ -57,6 +56,3 @@ claude-code-sandbox --model claude-opus-4-6
 - Changes Claude makes inside the container are written directly to your mounted project directory — they persist on your host.
 - The container is ephemeral (`--rm`): anything outside `/workspace` is discarded when Claude exits.
 - Network access is not restricted by default. If you want to limit outbound connections, add Docker network flags to the `docker run` command in `claude-sandbox.sh`.
-=======
-A containerised claude code sandbox to safely run claude dangerously without permissions
->>>>>>> Stashed changes
