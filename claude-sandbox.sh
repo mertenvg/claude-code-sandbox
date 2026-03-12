@@ -17,4 +17,4 @@ docker run -it --rm \
   -w /workspace \
   -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   "$IMAGE_NAME" \
-  claude --dangerously-skip-permissions --api-key "$ANTHROPIC_API_KEY"
+  claude --dangerously-skip-permissions
