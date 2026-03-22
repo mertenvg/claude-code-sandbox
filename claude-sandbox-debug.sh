@@ -28,5 +28,6 @@ docker run -it \
   -v "$(pwd):/workspace" \
   -w /workspace \
   -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  -u 0 \
   "$IMAGE_NAME" \
-  bash
+  /bin/bash
