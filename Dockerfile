@@ -17,6 +17,12 @@ RUN go install golang.org/x/tools/gopls@latest && \
 
 # add sandbox user for claude
 RUN useradd -m sandbox
+
+# Give sandbox user its own GOPATH so it can install/cache Go packages
+ENV GOPATH=/home/sandbox/go
+ENV PATH="/home/sandbox/go/bin:${PATH}"
+RUN mkdir -p /home/sandbox/go && chown -R sandbox:sandbox /home/sandbox/go
+
 USER sandbox
 
 # Install Claude Code

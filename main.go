@@ -18,6 +18,7 @@ const imageName = "claude-code-sandbox"
 var nonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
 var nameFlag = flag.String("name", "", "override the container name")
+var debugFlag = flag.Bool("debug", false, "start the container as root with /bin/bash instead of claude")
 
 func containerName() string {
 	if *nameFlag != "" {
@@ -123,7 +124,12 @@ func createContainer(name string) error {
 		args = append(args, "-e", "ANTHROPIC_API_KEY="+key)
 	}
 
-	args = append(args, imageName, "claude", "--dangerously-skip-permissions")
+	if *debugFlag {
+		args = append(args, "-u", "0")
+		args = append(args, imageName, "/bin/bash")
+	} else {
+		args = append(args, imageName, "claude", "--dangerously-skip-permissions")
+	}
 	args = append(args, flag.Args()...)
 
 	cmd := exec.Command("docker", args...)
