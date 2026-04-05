@@ -9,11 +9,14 @@ ENV COLORTERM=truecolor
 RUN apt-get update && apt-get install -y curl && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
+    apt-get install -y jq && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install useful Go tools (before switching user, since GOPATH=/go is root-owned)
 RUN go install golang.org/x/tools/gopls@latest && \
-    go install github.com/go-delve/delve/cmd/dlv@latest
+    go install github.com/go-delve/delve/cmd/dlv@latest && \
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
+    go install golang.org/x/tools/cmd/goimports@latest
 
 # add sandbox user for claude
 RUN useradd -m sandbox
