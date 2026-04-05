@@ -86,8 +86,33 @@ func containerExists(name string) bool {
 	return check.Run() == nil
 }
 
+func containerRunning(name string) bool {
+	out, err := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", name).Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
+}
+
 func run() error {
 	name := containerName()
+
+	if *debugFlag {
+		if containerRunning(name) {
+			fmt.Fprintln(os.Stderr, "Attaching debug shell to running container...")
+			return execContainer(name)
+		}
+		if containerExists(name) {
+			fmt.Fprintln(os.Stderr, "Starting stopped container and attaching debug shell...")
+			if err := startContainerDetached(name); err != nil {
+				return fmt.Errorf("starting container: %w", err)
+			}
+			return execContainer(name)
+		}
+		fmt.Fprintln(os.Stderr, "Creating new sandbox container in debug mode...")
+		return createContainer(name)
+	}
+
 	if containerExists(name) {
 		fmt.Fprintln(os.Stderr, "Restarting existing sandbox container...")
 		return startContainer(name)
@@ -99,6 +124,25 @@ func run() error {
 
 func startContainer(name string) error {
 	cmd := exec.Command("docker", "start", "-a", "-i", name)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func startContainerDetached(name string) error {
+	return exec.Command("docker", "start", name).Run()
+}
+
+func execContainer(name string) error {
+	args := []string{"exec", "-i", "-u", "0"}
+	if isTerminal(os.Stdin) {
+		args = append(args, "-t")
+	}
+	args = append(args, name, "/bin/bash")
+	args = append(args, flag.Args()...)
+
+	cmd := exec.Command("docker", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

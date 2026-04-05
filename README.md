@@ -50,6 +50,22 @@ Any extra arguments are forwarded to `claude`, e.g.:
 claude-code-sandbox --model claude-opus-4-6
 ```
 
+### Debug mode
+
+Use the `-debug` flag to open an interactive root shell inside the container instead of launching Claude:
+
+```bash
+claude-code-sandbox -debug
+```
+
+This is useful for inspecting the container environment, installing additional tools, or troubleshooting issues. Debug mode works in three scenarios:
+
+- **No existing container** — creates a new container with a root bash shell
+- **Container exists but is stopped** — starts the container and attaches a root shell via `docker exec`
+- **Container is already running** (e.g. Claude is active in another terminal) — attaches an additional root shell via `docker exec`
+
+The corresponding shell script is `claude-sandbox-debug.sh`.
+
 ### Custom container name
 
 By default, the container name is derived from the current working directory. You can override it with the `--name` flag:
