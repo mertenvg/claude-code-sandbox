@@ -29,6 +29,7 @@ var resumeSessionFlag = flag.String("resume-session", "", "resume a specific ses
 var sessionIDFlag = flag.String("session-id", "", "resume a specific session by UUID")
 var sessionFlag = flag.String("session", "", "set a display name for the claude session")
 var commitFlag = flag.String("commit", "", "commit the current container as a new image (default: claude-code-sandbox-{dirname})")
+var removeFlag = flag.Bool("rm", false, "remove the container for the current directory and exit")
 var versionFlag = flag.Bool("version", false, "print version and exit")
 var updateFlag = flag.Bool("update", false, "update to the latest version via go install")
 
@@ -120,6 +121,14 @@ func main() {
 		return
 	}
 
+	if *removeFlag {
+		if err := removeContainer(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Track whether -commit was explicitly passed.
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "commit" {
@@ -169,6 +178,31 @@ func commitContainer() error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Done. Use -image %s to start a new container from this image.\n", commitImage)
+	return nil
+}
+
+func removeContainer() error {
+	name := containerName()
+	if !containerExists(name) {
+		return fmt.Errorf("container %q does not exist", name)
+	}
+
+	if containerRunning(name) {
+		fmt.Fprintf(os.Stderr, "Stopping container %q...\n", name)
+		if err := exec.Command("docker", "stop", name).Run(); err != nil {
+			return fmt.Errorf("stopping container: %w", err)
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "Removing container %q...\n", name)
+	cmd := exec.Command("docker", "rm", name)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("removing container: %w", err)
+	}
+
+	fmt.Fprintln(os.Stderr, "Done.")
 	return nil
 }
 

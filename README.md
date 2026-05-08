@@ -147,7 +147,7 @@ If you've customized your container (installed packages, configured tools, etc.)
 2. Remove the old container:
 
    ```bash
-   docker rm <container-name>
+   claude-code-sandbox -rm
    ```
 
 3. Start the sandbox using your saved image:
@@ -166,5 +166,5 @@ Note: Your project files in `/workspace` are always preserved since they are mou
 
 - Changes Claude makes inside the container are written directly to your mounted project directory — they persist on your host.
 - The container is reused across runs. If a container with the same name already exists, it is restarted rather than recreated. Anything outside `/workspace` (e.g. installed packages, auth state) is preserved between sessions.
-- To start fresh, remove the container manually with `docker rm <container-name>`.
+- To start fresh, remove the container with `claude-code-sandbox -rm`.
 - Network access is not restricted by default. If you want to limit outbound connections, add Docker network flags to the `docker run` command in `claude-sandbox.sh`.
