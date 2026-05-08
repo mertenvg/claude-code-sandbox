@@ -22,6 +22,7 @@ Flags:
   --name <name>             override the container name
   --image <name>            override the Docker image (default: claude-code-sandbox)
   --commit [name]           commit the current container as a new image
+  --rm                      remove the container and exit
   --help                    show this help text
 EOF
       exit 0
@@ -33,6 +34,10 @@ EOF
     --image)
       CUSTOM_IMAGE="$2"
       shift 2
+      ;;
+    --rm)
+      REMOVE_FLAG=true
+      shift
       ;;
     --commit)
       COMMIT_FLAG=true
@@ -70,6 +75,22 @@ if [ "$COMMIT_FLAG" = true ]; then
   echo "Committing container '$CONTAINER_NAME' as image '$COMMIT_IMAGE'..."
   docker commit "$CONTAINER_NAME" "$COMMIT_IMAGE"
   echo "Done. Use --image $COMMIT_IMAGE to start a new container from this image." >&2
+  exit 0
+fi
+
+# Handle --rm: stop and remove the container, then exit
+if [ "$REMOVE_FLAG" = true ]; then
+  if ! docker container inspect "$CONTAINER_NAME" &>/dev/null; then
+    echo "Error: container '$CONTAINER_NAME' does not exist." >&2
+    exit 1
+  fi
+  if docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q "true"; then
+    echo "Stopping container '$CONTAINER_NAME'..." >&2
+    docker stop "$CONTAINER_NAME"
+  fi
+  echo "Removing container '$CONTAINER_NAME'..." >&2
+  docker rm "$CONTAINER_NAME"
+  echo "Done." >&2
   exit 0
 fi
 
