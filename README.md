@@ -144,6 +144,10 @@ Tags published per bundle:
 | `<bundle>-v1.2.3` | build from release `v1.2.3` |
 | `<bundle>-<sha>` | build from a specific commit |
 
+There is deliberately no `latest` tag. Bundles are separate lineages rather than versions of
+one image, so a bare `docker pull ghcr.io/mertenvg/claude-code-sandbox` has no sensible
+answer and will fail — pull `:go` or `:rust` explicitly.
+
 To add a bundle, drop a `dockerfiles/<name>/Dockerfile` into the repo. The publish
 workflow discovers bundles from that directory, and the binary embeds them all as
 local-build fallbacks — no code changes needed.

@@ -60,6 +60,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # latest=auto (the default) tags whichever bundle publishes last as
+          # `latest`, which is a race between matrix jobs. Bundles are separate
+          # lineages, not versions of one image, so there is no meaningful latest.
+          flavor: latest=false
           # Every tag is bundle-prefixed so bundles share one repository.
           tags: |
             type=raw,value=${{ matrix.bundle }},enable={{is_default_branch}}
