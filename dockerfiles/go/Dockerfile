@@ -10,14 +10,23 @@ FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS tools
 ARG TARGETOS
 ARG TARGETARCH
 
-# GOBIN keeps cross-compiled binaries out of the $GOOS_$GOARCH subdirectory,
-# so the COPY below is the same for native and cross builds.
-ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOBIN=/out
+ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
 
 RUN go install golang.org/x/tools/gopls@latest && \
     go install github.com/go-delve/delve/cmd/dlv@latest && \
     go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
     go install golang.org/x/tools/cmd/goimports@latest
+
+# go install writes cross-compiled binaries to $GOPATH/bin/$GOOS_$GOARCH but
+# native ones straight to $GOPATH/bin. GOBIN would flatten that, except Go
+# refuses the combination outright: "cannot install cross-compiled binaries
+# when GOBIN is set". So normalise into /out and let the COPY below be uniform.
+RUN mkdir -p /out && \
+    if [ -d "/go/bin/${TARGETOS}_${TARGETARCH}" ]; then \
+        cp /go/bin/${TARGETOS}_${TARGETARCH}/* /out/; \
+    else \
+        cp /go/bin/* /out/; \
+    fi
 
 FROM golang:1.26-bookworm
 

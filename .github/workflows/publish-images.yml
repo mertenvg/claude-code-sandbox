@@ -24,7 +24,7 @@ jobs:
     outputs:
       bundles: ${{ steps.list.outputs.bundles }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - id: list
         run: |
@@ -44,7 +44,7 @@ jobs:
       matrix:
         bundle: ${{ fromJSON(needs.discover.outputs.bundles) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: docker/setup-qemu-action@v3
 
