@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Docker-based sandbox for running Claude Code with `--dangerously-skip-permissions` safely. The Go binary (`main.go`) wraps Docker commands to build an image (with the embedded `Dockerfile`), create/reuse containers, and launch Claude Code inside them with the project directory mounted at `/workspace`.
+Docker-based sandbox for running Claude Code with `--dangerously-skip-permissions` safely. The Go binary (`main.go`) wraps Docker commands to pull (or build) an image, create/reuse containers, and launch Claude Code inside them with the project directory mounted at `/workspace`.
 
 ## Build and Run
 
@@ -31,6 +31,11 @@ claude-code-sandbox -commit my-custom-sandbox # custom name
 # Use a custom image (e.g., from -commit)
 claude-code-sandbox -image my-custom-sandbox
 
+# Image bundles (dockerfiles/<bundle>/Dockerfile)
+claude-code-sandbox -bundle go     # default
+claude-code-sandbox -bundle rust
+claude-code-sandbox -pull           # refresh the bundle image from GHCR
+
 # Session management
 claude-code-sandbox -continue              # resume most recent session
 claude-code-sandbox -resume                # open session picker
@@ -42,15 +47,21 @@ There are no tests, no linter config, and no Makefile. The module requires Go 1.
 
 ## Architecture
 
-This is a single-file Go program (`main.go`) with an embedded `Dockerfile` via `//go:embed`. Key flow:
+This is a single-file Go program (`main.go`) with the `dockerfiles/` tree embedded via `//go:embed`. Key flow:
 
-1. `ensureImage()` — checks if the Docker image exists (default or custom via `-image`); if the default is missing, writes the embedded Dockerfile to a temp dir and builds it. Custom images must already exist.
+1. `ensureImage()` — checks if the Docker image exists (default or custom via `-image`); if the default is missing, pulls `ghcr.io/mertenvg/claude-code-sandbox:<bundle>` and falls back to writing the embedded Dockerfile to a temp dir and building it. Custom images must already exist. `warnArchMismatch()` flags an image whose architecture differs from the host, since emulating amd64 on arm64 corrupts Go's GC.
 2. `run()` — determines container state (running/stopped/absent) and either reattaches, restarts, or creates a new container. Shell mode (`-shell` / `-debug`) opens a root bash shell instead of launching Claude.
 3. `createContainer()` — runs `docker run -d` with `sleep infinity` as CMD, then uses `docker exec` to launch claude (or bash in debug mode) with session flags. Stops the container after claude exits.
 4. `startContainer()` — for existing containers: starts detached, then `docker exec` claude. Detects old-format containers (pre-session-support) and prompts for migration with a `docker commit` tip. Falls back to legacy `docker start -a -i` if the user declines.
 5. `claudeArgs()` — assembles claude CLI arguments including session flags (`-continue`, `-resume`, `-resume-session`, `-session-id`, `-session`).
 
-Container naming is derived from the cwd (slugified) or overridden with `-name`. Containers are reused across runs; state outside `/workspace` persists between sessions.
+Container naming is derived from the cwd (slugified), suffixed with the bundle for non-default bundles (`bundleSuffix()`), or overridden with `-name`. Containers are reused across runs; state outside `/workspace` persists between sessions.
+
+### Image bundles
+
+Each bundle is a `dockerfiles/<bundle>/Dockerfile`; `-bundle` selects one (default `go`). Current bundles: `go`, `rust`. `.github/workflows/publish-images.yml` discovers bundles from that directory and pushes multi-arch (`linux/amd64`, `linux/arm64`) images to GHCR tagged `<bundle>`, `<bundle>-v<version>`, and `<bundle>-<sha>`. Adding a bundle requires no Go or workflow changes — drop in the Dockerfile and both the `//go:embed dockerfiles` fallback and the CI matrix pick it up.
+
+Every bundle installs Node 22, Claude Code, and Playwright with Chromium only (browsers in the shared world-writable `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` so the `sandbox` user can use them and add engines at runtime; other engines are omitted to keep the pull small). Bundle Dockerfiles must never run the Go compiler under emulation — cross-compile Go tools from a `FROM --platform=$BUILDPLATFORM` stage instead. Emulated Go builds crash with `fatal error: found pointer to free object`. Prefer prebuilt toolchain components generally (the `rust` bundle uses `rustup component add`, which downloads rather than compiles, so it needs no builder stage).
 
 The shell scripts (`claude-sandbox.sh`, `claude-sandbox-debug.sh`) are standalone alternatives to the Go binary with equivalent functionality.
 

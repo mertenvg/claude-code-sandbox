@@ -6,9 +6,13 @@ A Docker-based sandbox for running Claude Code with `--dangerously-skip-permissi
 
 Claude Code's `--dangerously-skip-permissions` flag lets it run commands and edit files without asking for approval at every step — useful for long autonomous tasks. The risk is that it can also run arbitrary shell commands on your machine. This sandbox runs Claude inside a Docker container with only your project directory mounted, so any risky operations are contained.
 
-The container includes:
-- Go 1.26 + gopls + Delve (for Go development)
-- Node.js 24 + Claude Code
+Every container includes Node.js 22, Claude Code, and Playwright with Chromium, plus a
+language toolchain chosen by [bundle](#bundles):
+
+| Bundle | Toolchain |
+| --- | --- |
+| `go` (default) | Go 1.26, gopls, Delve, golangci-lint, goimports |
+| `rust` | Rust stable, rust-analyzer, clippy, rustfmt, lldb |
 
 ## Prerequisites
 
@@ -50,11 +54,26 @@ Copy `claude-sandbox.sh` into your project and run it from your project root:
 ./claude-sandbox.sh
 ```
 
+It pulls the same prebuilt image as the binary, so it works standalone. It only needs the
+`dockerfiles/` directory alongside it if you want the local-build fallback.
+
 ### What happens on first run
 
-1. The Docker image is built automatically (one-time setup, takes a few minutes)
+1. The prebuilt image is pulled from `ghcr.io/mertenvg/claude-code-sandbox:go`. If the pull
+   fails (offline, registry unreachable), the image is built locally from the embedded
+   Dockerfile instead — that takes a few minutes.
 2. Your current directory is mounted into the container as `/workspace`
 3. Claude Code launches with `--dangerously-skip-permissions`
+
+Images are published for `linux/amd64` and `linux/arm64`, so Apple Silicon and Intel
+machines both get a native image. Playwright's Chromium adds roughly 400MB, so the first
+pull is not instant, but it is a one-time cost and far faster than building locally.
+
+To refresh an already-pulled image:
+
+```bash
+claude-code-sandbox -pull
+```
 
 Any extra arguments are forwarded to `claude`, e.g.:
 
@@ -103,15 +122,41 @@ claude-code-sandbox -session "my-new-task"
 
 The corresponding shell script flags use double dashes: `--continue`, `--resume`, `--resume-session`, `--session-id`, `--session`.
 
+### Bundles
+
+The image is built from `dockerfiles/<bundle>/Dockerfile` and published to GHCR under a
+bundle-prefixed tag. `go` is the default:
+
+```bash
+claude-code-sandbox                # ghcr.io/mertenvg/claude-code-sandbox:go
+claude-code-sandbox -bundle rust   # ghcr.io/mertenvg/claude-code-sandbox:rust
+```
+
+Non-default bundles get their own container name (`claude-sandbox-<dir>-<bundle>`), so a
+Go and a Rust sandbox can coexist in the same project. Containers created before bundles
+existed keep working, since the default bundle leaves the name unchanged.
+
+Tags published per bundle:
+
+| Tag | Meaning |
+| --- | --- |
+| `<bundle>` | latest build from `main` |
+| `<bundle>-v1.2.3` | build from release `v1.2.3` |
+| `<bundle>-<sha>` | build from a specific commit |
+
+To add a bundle, drop a `dockerfiles/<name>/Dockerfile` into the repo. The publish
+workflow discovers bundles from that directory, and the binary embeds them all as
+local-build fallbacks — no code changes needed.
+
 ### Custom image
 
-By default, the sandbox builds and uses the `claude-code-sandbox` image. You can override this with the `-image` flag:
+By default, the sandbox uses the `ghcr.io/mertenvg/claude-code-sandbox:go` image. You can override this with the `-image` flag:
 
 ```bash
 claude-code-sandbox -image my-custom-sandbox
 ```
 
-The custom image must already exist — the sandbox will not auto-build it. See [Saving container state](#saving-container-state) for how to create one from an existing container.
+The custom image must already exist — the sandbox will not auto-build or pull it. See [Saving container state](#saving-container-state) for how to create one from an existing container.
 
 ### Custom container name
 
@@ -161,6 +206,59 @@ If you've customized your container (installed packages, configured tools, etc.)
    You only need `-image` for this first run. Once the container exists, subsequent runs reuse it by name — the image is only used at container creation time.
 
 Note: Your project files in `/workspace` are always preserved since they are mounted from your host directory.
+
+## Troubleshooting
+
+### Build crashes with "fatal error: found pointer to free object"
+
+If a local build dies inside the Go tools layer with something like:
+
+```
+runtime: marked free object in span 0x40474c78c0 ...
+fatal error: found pointer to free object
+runtime.(*mspan).reportZombies
+```
+
+…Docker is running an `amd64` image on an `arm64` host under emulation (Rosetta or qemu),
+which corrupts Go's garbage collector. The sandbox warns when it detects this mismatch.
+
+Fixes, in order of preference:
+
+1. Let the sandbox pull the native image — `claude-code-sandbox -pull`.
+2. Unset `DOCKER_DEFAULT_PLATFORM` if it is pinned to `linux/amd64`.
+3. In Docker Desktop, turn off **Settings → General → Use Rosetta for x86_64/amd64 emulation**.
+
+The `go` bundle also cross-compiles its Go tools rather than emulating the compiler, so
+local builds on Apple Silicon no longer hit this even when targeting `amd64`.
+
+### Playwright
+
+`@playwright/test` and Chromium are preinstalled. Browsers live in the shared
+`PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` so they work for any user in the container:
+
+```bash
+playwright --version
+```
+
+Only Chromium is baked in — Firefox and WebKit would roughly triple the download for
+something most projects don't need. Adding one needs its OS dependencies installed as root,
+so do it from a shell in the container:
+
+```bash
+claude-code-sandbox -shell
+playwright install --with-deps firefox   # or webkit
+```
+
+Commit the container afterwards (see [Saving container state](#saving-container-state)) if
+you want to keep it.
+
+If a project pins a different `@playwright/test` version than the one baked in, its browser
+revisions won't match and Playwright will report a missing executable. The browser directory
+is world-writable, so fetching matching revisions needs no root:
+
+```bash
+npx playwright install chromium
+```
 
 ## Notes
 

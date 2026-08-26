@@ -1,0 +1,78 @@
+name: Publish sandbox images
+
+# A `push` trigger applies its `paths` filter to tags too, which would skip
+# release builds, so releases come in on their own event instead.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dockerfiles/**'
+      - '.github/workflows/publish-images.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Discover bundles from dockerfiles/<bundle>/Dockerfile so adding a new
+  # bundle needs no workflow changes.
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      bundles: ${{ steps.list.outputs.bundles }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: list
+        run: |
+          bundles=$(find dockerfiles -mindepth 2 -maxdepth 2 -name Dockerfile -printf '%h\n' \
+            | xargs -n1 basename | sort | jq -R . | jq -sc .)
+          echo "bundles=$bundles" >> "$GITHUB_OUTPUT"
+          echo "Found bundles: $bundles"
+
+  publish:
+    needs: discover
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        bundle: ${{ fromJSON(needs.discover.outputs.bundles) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Every tag is bundle-prefixed so bundles share one repository.
+          tags: |
+            type=raw,value=${{ matrix.bundle }},enable={{is_default_branch}}
+            type=semver,pattern=v{{version}},prefix=${{ matrix.bundle }}-
+            type=sha,prefix=${{ matrix.bundle }}-
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: dockerfiles/${{ matrix.bundle }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.bundle }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.bundle }}

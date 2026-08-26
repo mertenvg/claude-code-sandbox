@@ -2,7 +2,11 @@
 # Claude Code Sandbox launcher
 # Run this from your project root
 
-IMAGE_NAME="claude-code-sandbox"
+IMAGE_REPO="ghcr.io/mertenvg/claude-code-sandbox"
+COMMIT_PREFIX="claude-code-sandbox"
+DEFAULT_BUNDLE="go"
+BUNDLE="$DEFAULT_BUNDLE"
+PULL_FLAG=false
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Parse arguments
@@ -21,7 +25,9 @@ Run Claude Code in a sandboxed Docker container.
 
 Flags:
   --name <name>             override the container name
-  --image <name>            override the Docker image (default: claude-code-sandbox)
+  --image <name>            override the Docker image (default: ghcr.io/mertenvg/claude-code-sandbox:go)
+  --bundle <name>           image bundle to pull or build (default: go)
+  --pull                    pull the latest bundle image before running
   --continue                resume the most recent claude session
   --resume                  open the session picker to resume a session
   --resume-session <name>   resume a specific session by name or ID
@@ -40,6 +46,14 @@ EOF
     --image)
       CUSTOM_IMAGE="$2"
       shift 2
+      ;;
+    --bundle)
+      BUNDLE="$2"
+      shift 2
+      ;;
+    --pull)
+      PULL_FLAG=true
+      shift
       ;;
     --continue)
       CLAUDE_EXTRA_ARGS+=("--continue")
@@ -84,15 +98,23 @@ done
 
 CWD_SLUG="$(pwd | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/^-//;s/-$//' | tr '[:upper:]' '[:lower:]')"
 
+# Qualify per-directory names so bundles don't collide. The default bundle
+# contributes nothing, so containers created before bundles existed keep
+# their names.
+BUNDLE_SUFFIX=""
+if [ "$BUNDLE" != "$DEFAULT_BUNDLE" ]; then
+  BUNDLE_SUFFIX="-$BUNDLE"
+fi
+
 # Derive container name from current working directory if not provided
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="claude-sandbox-$CWD_SLUG"
+  CONTAINER_NAME="claude-sandbox-$CWD_SLUG$BUNDLE_SUFFIX"
 fi
 
 # Handle --commit: save the container as an image and exit
 if [ "$COMMIT_FLAG" = true ]; then
   if [ -z "$COMMIT_IMAGE" ]; then
-    COMMIT_IMAGE="$IMAGE_NAME-$CWD_SLUG"
+    COMMIT_IMAGE="$COMMIT_PREFIX-$CWD_SLUG$BUNDLE_SUFFIX"
   fi
   if ! docker container inspect "$CONTAINER_NAME" &>/dev/null; then
     echo "Error: container '$CONTAINER_NAME' does not exist." >&2
@@ -121,16 +143,44 @@ if [ "$REMOVE_FLAG" = true ]; then
 fi
 
 # Determine which image to use
-EFFECTIVE_IMAGE="${CUSTOM_IMAGE:-$IMAGE_NAME}"
+EFFECTIVE_IMAGE="${CUSTOM_IMAGE:-$IMAGE_REPO:$BUNDLE}"
 
-# Build the default image if it doesn't exist (skip for custom images)
-if ! docker image inspect "$EFFECTIVE_IMAGE" &>/dev/null; then
-  if [ -n "$CUSTOM_IMAGE" ]; then
+# Prefer the prebuilt image. Building locally is the fallback: it compiles the
+# Go toolchain, which is where emulated builds tend to fall over.
+if [ -n "$CUSTOM_IMAGE" ]; then
+  if ! docker image inspect "$EFFECTIVE_IMAGE" &>/dev/null; then
     echo "Error: image '$CUSTOM_IMAGE' not found — build or pull it first." >&2
     exit 1
   fi
-  echo "Building sandbox image (one-time setup)..."
-  docker build -t "$EFFECTIVE_IMAGE" "$SCRIPT_DIR"
+elif [ "$PULL_FLAG" = true ] || ! docker image inspect "$EFFECTIVE_IMAGE" &>/dev/null; then
+  echo "Pulling sandbox image $EFFECTIVE_IMAGE..." >&2
+  if ! docker pull "$EFFECTIVE_IMAGE"; then
+    if [ "$PULL_FLAG" = true ]; then
+      echo "Error: could not pull '$EFFECTIVE_IMAGE'." >&2
+      exit 1
+    fi
+    DOCKERFILE_DIR="$SCRIPT_DIR/dockerfiles/$BUNDLE"
+    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+      echo "Error: could not pull '$EFFECTIVE_IMAGE', and there is no $DOCKERFILE_DIR/Dockerfile to build from." >&2
+      exit 1
+    fi
+    echo "Falling back to a local build (one-time setup)..." >&2
+    docker build -t "$EFFECTIVE_IMAGE" "$DOCKERFILE_DIR"
+  fi
+fi
+
+# Emulating amd64 on arm64 (Rosetta, qemu) corrupts Go's garbage collector,
+# so warn when the image architecture doesn't match the host.
+IMAGE_ARCH="$(docker image inspect -f '{{.Architecture}}' "$EFFECTIVE_IMAGE" 2>/dev/null)"
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+  x86_64) HOST_ARCH="amd64" ;;
+  aarch64|arm64) HOST_ARCH="arm64" ;;
+esac
+if [ -n "$IMAGE_ARCH" ] && [ "$IMAGE_ARCH" != "$HOST_ARCH" ]; then
+  echo "Warning: image $EFFECTIVE_IMAGE is $IMAGE_ARCH but this host is $HOST_ARCH — it will run under emulation." >&2
+  echo "Go tooling is unreliable under emulation. Unset DOCKER_DEFAULT_PLATFORM (or disable Rosetta" >&2
+  echo "emulation in Docker Desktop) and re-run with --pull to get the native $HOST_ARCH image." >&2
 fi
 
 # Reuse existing container if it exists, otherwise create a new one

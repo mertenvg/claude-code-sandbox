@@ -2,25 +2,35 @@ package main
 
 import (
 	"bufio"
-	_ "embed"
+	"embed"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"strings"
 )
 
-//go:embed Dockerfile
-var dockerfile []byte
+//go:embed dockerfiles
+var dockerfiles embed.FS
 
-const imageName = "claude-code-sandbox"
+const (
+	// imageRepo is the registry repository holding the prebuilt bundle images.
+	imageRepo = "ghcr.io/mertenvg/claude-code-sandbox"
+	// commitImagePrefix names images produced by -commit; kept separate from
+	// imageRepo so committed images stay local and unqualified.
+	commitImagePrefix = "claude-code-sandbox"
+	defaultBundle     = "go"
+)
 
 var nonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
 var nameFlag = flag.String("name", "", "override the container name")
-var imageFlag = flag.String("image", "", "override the Docker image (default: claude-code-sandbox)")
+var imageFlag = flag.String("image", "", "override the Docker image (default: "+imageRepo+":"+defaultBundle+")")
+var bundleFlag = flag.String("bundle", defaultBundle, "image bundle to pull or build (see dockerfiles/)")
+var pullFlag = flag.Bool("pull", false, "pull the latest bundle image before running")
 var shellFlag = flag.Bool("shell", false, "start the container as root with /bin/bash instead of claude")
 var debugFlag = flag.Bool("debug", false, "alias for -shell (deprecated)")
 var continueFlag = flag.Bool("continue", false, "resume the most recent claude session")
@@ -60,7 +70,17 @@ func effectiveImage() string {
 	if *imageFlag != "" {
 		return *imageFlag
 	}
-	return imageName
+	return imageRepo + ":" + *bundleFlag
+}
+
+// bundleDockerfile returns the embedded Dockerfile for the selected bundle.
+func bundleDockerfile() ([]byte, error) {
+	path := "dockerfiles/" + *bundleFlag + "/Dockerfile"
+	data, err := dockerfiles.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("unknown bundle %q: no embedded %s", *bundleFlag, path)
+	}
+	return data, nil
 }
 
 func claudeArgs() []string {
@@ -93,11 +113,21 @@ func cwdSlug() string {
 	return strings.Trim(slug, "-")
 }
 
+// bundleSuffix qualifies per-directory names so bundles don't collide.
+// The default bundle contributes nothing, so containers created before
+// bundles existed keep their names.
+func bundleSuffix() string {
+	if *bundleFlag == defaultBundle {
+		return ""
+	}
+	return "-" + *bundleFlag
+}
+
 func containerName() string {
 	if *nameFlag != "" {
 		return *nameFlag
 	}
-	return "claude-sandbox-" + cwdSlug()
+	return "claude-sandbox-" + cwdSlug() + bundleSuffix()
 }
 
 func main() {
@@ -166,7 +196,7 @@ func commitContainer() error {
 
 	commitImage := *commitFlag
 	if commitImage == "" {
-		commitImage = imageName + "-" + cwdSlug()
+		commitImage = commitImagePrefix + "-" + cwdSlug() + bundleSuffix()
 	}
 
 	fmt.Fprintf(os.Stderr, "Committing container %q as image %q...\n", name, commitImage)
@@ -208,16 +238,66 @@ func removeContainer() error {
 
 func ensureImage() error {
 	img := effectiveImage()
-	check := exec.Command("docker", "image", "inspect", img)
-	check.Stdout = nil
-	check.Stderr = nil
-	if check.Run() == nil {
+
+	// Custom images must already exist — only pull or build known bundles.
+	if *imageFlag != "" {
+		if !imageExists(img) {
+			return fmt.Errorf("image %q not found — build or pull it first", img)
+		}
+		warnArchMismatch(img)
 		return nil
 	}
 
-	// Custom images must already exist — only auto-build the default image.
-	if *imageFlag != "" {
-		return fmt.Errorf("image %q not found — build or pull it first", img)
+	if imageExists(img) && !*pullFlag {
+		warnArchMismatch(img)
+		return nil
+	}
+
+	// Published bundles mirror dockerfiles/, so reject typos before hitting the registry.
+	if _, err := bundleDockerfile(); err != nil {
+		return err
+	}
+
+	// Prefer the prebuilt multi-arch image: pulling avoids compiling the Go
+	// toolchain locally, which is where emulated builds tend to fall over.
+	if err := pullImage(img); err == nil {
+		warnArchMismatch(img)
+		return nil
+	} else if *pullFlag {
+		return fmt.Errorf("pulling image: %w", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "Could not pull %s (%v). Falling back to a local build.\n", img, err)
+	}
+
+	if err := buildImage(img); err != nil {
+		return err
+	}
+	warnArchMismatch(img)
+	return nil
+}
+
+func imageExists(img string) bool {
+	check := exec.Command("docker", "image", "inspect", img)
+	check.Stdout = nil
+	check.Stderr = nil
+	return check.Run() == nil
+}
+
+func pullImage(img string) error {
+	fmt.Fprintf(os.Stderr, "Pulling sandbox image %s...\n", img)
+	pull := exec.Command("docker", "pull", img)
+	pull.Stdout = os.Stderr
+	pull.Stderr = os.Stderr
+	if err := pull.Run(); err != nil {
+		return fmt.Errorf("docker pull %s: %w", img, err)
+	}
+	return nil
+}
+
+func buildImage(img string) error {
+	df, err := bundleDockerfile()
+	if err != nil {
+		return err
 	}
 
 	fmt.Fprintln(os.Stderr, "Building sandbox image (one-time setup)...")
@@ -228,7 +308,7 @@ func ensureImage() error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := os.WriteFile(tmpDir+"/Dockerfile", dockerfile, 0644); err != nil {
+	if err := os.WriteFile(tmpDir+"/Dockerfile", df, 0644); err != nil {
 		return fmt.Errorf("writing Dockerfile: %w", err)
 	}
 
@@ -239,6 +319,24 @@ func ensureImage() error {
 		return fmt.Errorf("building image: %w", err)
 	}
 	return nil
+}
+
+// warnArchMismatch flags an image whose architecture differs from the host.
+// Emulating amd64 on arm64 (Rosetta, qemu) corrupts the Go garbage collector,
+// which crashes builds and Go tooling inside the container.
+func warnArchMismatch(img string) {
+	out, err := exec.Command("docker", "image", "inspect", "-f", "{{.Architecture}}", img).Output()
+	if err != nil {
+		return
+	}
+	imgArch := strings.TrimSpace(string(out))
+	if imgArch == "" || imgArch == runtime.GOARCH {
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "Warning: image %s is %s but this host is %s — it will run under emulation.\n", img, imgArch, runtime.GOARCH)
+	fmt.Fprintln(os.Stderr, "Go tooling is unreliable under emulation. Unset DOCKER_DEFAULT_PLATFORM (or disable Rosetta")
+	fmt.Fprintf(os.Stderr, "emulation in Docker Desktop) and re-run with -pull to get the native %s image.\n", runtime.GOARCH)
 }
 
 func containerExists(name string) bool {
